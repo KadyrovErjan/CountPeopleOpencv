@@ -1,0 +1,12 @@
+version: "3.9"
+
+services:
+  camera-yolo:
+    build: .
+    container_name: yolo_camera
+    devices:
+      - /dev/video0:/dev/video0
+    environment:
+      - DISPLAY=${DISPLAY}
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
