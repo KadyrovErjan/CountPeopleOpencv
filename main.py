@@ -1,51 +1,71 @@
 import cv2
 import time
+import threading
+from fastapi import FastAPI
 from ultralytics import YOLO
 
-VIDEO_SOURCE = 0  # локально: 0, на AWS лучше RTSP или файл
+VIDEO_SOURCE = "people.mp4"
 
-model = YOLO("yolov8n.pt")
+app = FastAPI()
 
-cap = cv2.VideoCapture(VIDEO_SOURCE)
+stats = {
+    "fps": 0.0,
+    "persons": 0,
+    "status": "starting"
+}
 
-if not cap.isOpened():
-    print("Camera / video source not found")
-    exit()
+def yolo_worker():
+    model = YOLO("yolov8n.pt")
+    cap = cv2.VideoCapture(VIDEO_SOURCE)
 
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    if not cap.isOpened():
+        stats["status"] = "video_not_found"
+        return
 
-print("YOLO started...")
+    stats["status"] = "running"
 
-while True:
-    start_time = time.time()
+    while True:
+        start_time = time.time()
 
-    ret, frame = cap.read()
-    if not ret:
-        print("Frame not received")
-        break
+        ret, frame = cap.read()
+        if not ret:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            continue
 
-    results = model(
-        frame,
-        conf=0.3,
-        imgsz=416,
-        device="cpu",
-        verbose=False
-    )
+        results = model(
+            frame,
+            conf=0.3,
+            imgsz=416,
+            device="cpu",
+            verbose=False
+        )
 
-    boxes = results[0].boxes
-    person_count = 0
+        boxes = results[0].boxes
+        person_count = 0
 
-    if boxes is not None:
-        for box in boxes:
-            cls = int(box.cls[0])
-            label = model.names[cls]
+        if boxes is not None:
+            for box in boxes:
+                cls = int(box.cls[0])
+                if model.names[cls] == "person":
+                    person_count += 1
 
-            if label == "person":
-                person_count += 1
+        fps = 1 / (time.time() - start_time + 1e-6)
 
-    fps = 1 / (time.time() - start_time + 1e-6)
+        stats["fps"] = round(fps, 2)
+        stats["persons"] = person_count
 
-    print(f"FPS: {fps:.1f} | Persons: {person_count}")
+@app.on_event("startup")
+def startup_event():
+    thread = threading.Thread(target=yolo_worker, daemon=True)
+    thread.start()
 
-cap.release()
+@app.get("/")
+def root():
+    return {
+        "service": "YOLOv8 People Counter",
+        "status": stats["status"]
+    }
+
+@app.get("/stats")
+def get_stats():
+    return stats

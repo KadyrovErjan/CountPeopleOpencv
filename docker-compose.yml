@@ -4,4 +4,7 @@ services:
   camera-yolo:
     build: .
     container_name: yolo_camera
+    ports:
+      - "8000:8000"
     restart: always
+
