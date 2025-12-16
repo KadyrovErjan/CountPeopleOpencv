@@ -1,81 +1,51 @@
 import cv2
-from ultralytics import YOLO
 import time
+from ultralytics import YOLO
 
-model = YOLO('yolov8n.pt')
+VIDEO_SOURCE = 0  # локально: 0, на AWS лучше RTSP или файл
 
-cap = cv2.VideoCapture(0)
+model = YOLO("yolov8n.pt")
 
-# ❌ было: if not cap
+cap = cv2.VideoCapture(VIDEO_SOURCE)
+
 if not cap.isOpened():
-    print('Camera not found')
+    print("Camera / video source not found")
     exit()
 
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
+print("YOLO started...")
+
 while True:
-    fps_start = time.time()
+    start_time = time.time()
 
     ret, frame = cap.read()
     if not ret:
-        print('Frame not found')
+        print("Frame not received")
         break
 
-    result = model(frame, conf=0.3)
-    boxes = result[0].boxes
+    results = model(
+        frame,
+        conf=0.3,
+        imgsz=416,
+        device="cpu",
+        verbose=False
+    )
 
+    boxes = results[0].boxes
     person_count = 0
 
-    for n in boxes:
-        cls = int(n.cls[0])
-        label = model.names[cls]
-        conf = round(float(n.conf[0]), 2)
+    if boxes is not None:
+        for box in boxes:
+            cls = int(box.cls[0])
+            label = model.names[cls]
 
-        if label == 'person':
-            person_count += 1
+            if label == "person":
+                person_count += 1
 
-            x1, y1, x2, y2 = map(int, n.xyxy[0])
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+    fps = 1 / (time.time() - start_time + 1e-6)
 
-            cv2.putText(
-                frame,
-                f'{label} {conf * 100:.0f}%',
-                (x1, y1 - 10),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (255, 0, 0),
-                2
-            )
-
-    # ✅ FPS считаем ОДИН РАЗ
-    fps_end = time.time()
-    fps = 1 / (fps_end - fps_start + 1e-6)
-
-    cv2.putText(
-        frame,
-        f'FPS: {round(fps, 1)}',
-        (10, 30),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        1,
-        (255, 0, 0),
-        2
-    )
-
-    cv2.putText(
-        frame,
-        f'Person count: {person_count}',
-        (10, 70),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        1,
-        (0, 255, 0),
-        2
-    )
-
-    cv2.imshow('Camera YOLOv8', frame)
-
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+    print(f"FPS: {fps:.1f} | Persons: {person_count}")
 
 cap.release()
-cv2.destroyAllWindows()
